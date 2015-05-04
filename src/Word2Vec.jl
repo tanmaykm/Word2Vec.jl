@@ -4,7 +4,7 @@ using Base.Collections      # for priority queue
 using Distances
 using NumericExtensions
 
-export LinearClassifier, train_one, train_parallel, WordEmbedding, train
+export LinearClassifier, train_one, train_parallel, WordEmbedding, train, accuracy
 
 include("utils.jl")
 include("softmax_classifier.jl")

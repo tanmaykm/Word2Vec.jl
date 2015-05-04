@@ -8,7 +8,7 @@ type RandomInited <: InitializatioinMethod
 end
 type OntologyInited <: InitializatioinMethod
     # Initialize the embedding by the structure of ontology tree
-    ontology :: TreeNode
+    ontology::TreeNode
 end
 const random_inited = RandomInited()
 
@@ -21,29 +21,29 @@ type HuffmanTree <: NetworkType
 end
 type OntologyTree <: NetworkType
     # Predicate step by step on the ontology tree
-    ontology :: TreeNode
+    ontology::TreeNode
 end
 const naive_softmax = NaiveSoftmax()
 const huffman_tree = HuffmanTree()
 
 
 type WordEmbedding
-    vocabulary :: Array{AbstractString}
-    embedding :: Dict{AbstractString, Array{Float64}}
-    classification_tree :: TreeNode
-    distribution :: Dict{AbstractString, Float64}
-    codebook :: Dict{AbstractString, Vector{Int64}}
+    vocabulary::Array{AbstractString}
+    embedding::Dict{AbstractString, Array{Float64}}
+    classification_tree::TreeNode
+    distribution::Dict{AbstractString, Float64}
+    codebook::Dict{AbstractString, Vector{Int64}}
 
-    init_type :: InitializatioinMethod
-    network_type :: NetworkType
-    dimension :: Int64
-    lsize :: Int64    # left window size in training
-    rsize :: Int64    # right window size
-    trained_count :: Int64
-    subsampling :: Float64
+    init_type::InitializatioinMethod
+    network_type::NetworkType
+    dimension::Int64
+    lsize::Int64    # left window size in training
+    rsize::Int64    # right window size
+    trained_count::Int64
+    subsampling::Float64
 end
 
-function WordEmbedding(dim :: Int64, init_type :: InitializatioinMethod, network_type :: NetworkType; lsize = 5, rsize = 5, subsampling = -1)
+function WordEmbedding(dim::Int64, init_type::InitializatioinMethod, network_type::NetworkType; lsize=5, rsize=5, subsampling=-1)
     if dim <= 0 || lsize <= 0 || rsize <= 0
         throw(ArgumentError("dimension should be a positive integer"))
     end
@@ -51,7 +51,7 @@ function WordEmbedding(dim :: Int64, init_type :: InitializatioinMethod, network
 end
 
 # now we can start the training
-function work_process(embed :: WordEmbedding, words_stream :: Task)
+function work_process(embed::WordEmbedding, words_stream::Task)
     middle = embed.lsize + 1
     input_gradient = zeros(Float64, embed.dimension)
     for window in sliding_window(words_stream, lsize = embed.lsize, rsize = embed.rsize)
@@ -70,10 +70,10 @@ function work_process(embed :: WordEmbedding, words_stream :: Task)
             target_word = window[ind]
             if !haskey(embed.codebook, target_word)
                 # discard words not presenting in the classification tree
-                continue;
+                continue
             end
             # @printf "%s -> %s\n" trained_word target_word
-            node = embed.classification_tree :: TreeNode
+            node = embed.classification_tree::TreeNode
             fill!(input_gradient, 0.0)
             for code in embed.codebook[target_word]
                 train_one(node.data, embed.embedding[trained_word], code, input_gradient)
@@ -86,28 +86,34 @@ function work_process(embed :: WordEmbedding, words_stream :: Task)
     embed
 end
 
-function train(embed :: WordEmbedding, corpus_filename :: String)
-    fs = open(corpus_filename, "r")
+function word_distribution(corpus_filename::AbstractString)
     distribution = Dict{AbstractString, Float64}()
     word_count = 0
-    @printf "reading the file...\n"
-    for i in words_of(fs)
-        if !haskey(distribution, i)
-            distribution[i] = 0
+    println("finding word distribution...")
+    open(corpus_filename, "r") do fs
+        for i in words_of(fs)
+            if !haskey(distribution, i)
+                distribution[i] = 1
+            else
+                distribution[i] += 1
+            end
+            word_count += 1
         end
-        distribution[i] += 1
-        word_count += 1
     end
+
     for (k, v) in distribution
         distribution[k] /= word_count
     end
-    if embed.subsampling < 0
-        embed.subsampling = 1 / word_count
-    end
-    embed.distribution = distribution
-    embed.vocabulary = collect(keys(distribution))
-    @printf "corpus size: %d words\n" word_count
-    @printf "Vocabulary size: %d\n" length(embed.vocabulary)
+
+    println("Word count: $word_count words")
+    println("Vocabulary size: $(length(keys(distribution)))")
+
+    distribution
+end
+
+function train(embed::WordEmbedding, corpus_filename::AbstractString)
+    embed.distribution = word_distribution(corpus_filename)
+    embed.vocabulary = collect(keys(embed.distribution))
 
     initialize_embedding(embed, embed.init_type)        # initialize by the specified method
     initialize_network(embed, embed.network_type)

@@ -1,26 +1,20 @@
-#using Iterators
-#using LightXML
-
-function words_of(fp :: IOStream; subsampling = (0, nothing), startpoint = -1, endpoint = -1)
-    if startpoint >= 0
-        seek(fp, startpoint)
-    end
+function words_of(fp::IOStream; subsampling=(0, nothing), startpoint=-1, endpoint=-1)
+    (startpoint >= 0) && seek(fp, startpoint)
     (rate, distr) = subsampling
     function producer()
         out = IOBuffer()
         while !eof(fp)
-            if endpoint >= 0 && position(fp) > endpoint
-                break
-            end
+            (endpoint >= 0) && (position(fp) > endpoint) && break
             c = read(fp, Char)
             if c == ' ' || c == '\n'
                 s = takebuf_string(out)
-                if s != ""
+                if !isempty(s)
                     if rate > 0 && haskey(distr, s)
-                        prob = (sqrt(distr[s] / rate) + 1) * rate / distr[s]
+                        rs = distr[s]
+                        prob = (sqrt(rs / rate) + 1) * rate / rs
                         if(prob < rand())
                             # @printf "throw %s, prob is %f\n" s prob
-                            continue;
+                            continue
                         end
                     end
                     produce(s)
@@ -33,10 +27,10 @@ function words_of(fp :: IOStream; subsampling = (0, nothing), startpoint = -1, e
     return Task(producer)
 end
 
-function words_of(filename :: String; subsampling = (0, nothing), startpoint = -1, endpoint = -1)
+function words_of(filename::AbstractString; subsampling=(0, nothing), startpoint = -1, endpoint = -1)
     function wrapper()
         fp = open(filename, "r")
-        t = words_of(fp, subsampling = subsampling, startpoint = startpoint, endpoint = endpoint)
+        t = words_of(fp, subsampling = subsampling, startpoint=startpoint, endpoint=endpoint)
         while !istaskdone(t)
             res = consume(t)
             if res == () && istaskdone(t)
@@ -50,7 +44,7 @@ function words_of(filename :: String; subsampling = (0, nothing), startpoint = -
 end
 
 
-function parallel_words_of(filename :: String, num_workers :: Integer; subsampling = (0, nothing))
+function parallel_words_of(filename::AbstractString, num_workers::Integer; subsampling=(0, nothing))
     #fp = open(filename, "r")
     #seekend(fp)
     #flen = position(fp)
@@ -62,7 +56,7 @@ function parallel_words_of(filename :: String, num_workers :: Integer; subsampli
     res = Array(Any, num_workers)
     for i in 1:num_workers
         last = (i == num_workers ? flen - 1 : cursor + per_len - 1)
-        res[i] = words_of(filename, subsampling = subsampling, startpoint = cursor, endpoint = last)
+        res[i] = words_of(filename, subsampling=subsampling, startpoint=cursor, endpoint=last)
         cursor += per_len
     end
     res
@@ -119,7 +113,8 @@ function leaves_of(root :: TreeNode)
     Task(() -> traverse(root))
 end
 
-function partition{T}(a :: Array{T}, n :: Integer)
+# partition an array to n parts
+function partition{T}(a::Array{T}, n::Integer)
     b = Array{T}[]
     t = floor(Int, length(a) / n)
     cursor = 1
@@ -129,15 +124,3 @@ function partition{T}(a :: Array{T}, n :: Integer)
     end
     b
 end
-
-#function read_ontology(filename :: String)
-#    xdoc = parse_file(filename)
-#    function build_tree(node :: XMLElement)
-#        if name(node) == "word"
-#            return BranchNode([], content(node), nothing)
-#        else
-#            return BranchNode(map(build_tree, child_elements(node)), nothing, nothing)
-#        end
-#    end
-#    build_tree(root(xdoc))
-#end

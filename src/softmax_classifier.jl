@@ -6,13 +6,10 @@
    predict(c, x)
 =#
 
-#using NumericExtensions
-#using IProfile
-
 type LinearClassifier
-    k :: Int64 # number of outputs
-    n :: Int64 # number of inputs
-    weights :: Array{Float64, 2} # n * k weight matrix
+    k::Int64 # number of outputs
+    n::Int64 # number of inputs
+    weights::Array{Float64, 2} # n * k weight matrix
 
     outputs :: Vector{Float64}
 end
@@ -22,12 +19,12 @@ function LinearClassifier(k, n)
     LinearClassifier(k, n, weights, zeros(k))
 end
 
-function predict(c :: LinearClassifier, x :: Array{Float64})
+function predict(c::LinearClassifier, x::Array{Float64})
     # the softmax() function from the NumericExtension package is more numeric stable
     return vec(softmax(x * c.weights))
 end
 
-function predict!(c :: LinearClassifier, x :: Array{Float64})
+function predict!(c::LinearClassifier, x::Array{Float64})
     # c.outputs = vec(softmax(x * c.weights))
     s = 0.0
     for i in 1:c.k
@@ -41,7 +38,7 @@ function predict!(c :: LinearClassifier, x :: Array{Float64})
     softmax!(c.outputs, c.outputs);
 end
 
-function train_one(c :: LinearClassifier, x :: Array{Float64}, y :: Int64, α :: Float64 = 0.025)
+function train_one(c::LinearClassifier, x::Array{Float64}, y::Int64, α::Float64=0.025)
     # if !in(y, 1 : c.k)
     #     msg = @sprintf "A sample is discarded because the label y = %d is not in range of 1 to %d" y c.k
     #     warn(msg)
@@ -60,7 +57,7 @@ function train_one(c :: LinearClassifier, x :: Array{Float64}, y :: Int64, α ::
         m = α * c.outputs[i]
         j = 1
         while j <= limit
-            c.weights[j, i] -= m * x[j]
+            c.weights[j,   i] -= m * x[j]
             c.weights[j+1, i] -= m * x[j+1]
             c.weights[j+2, i] -= m * x[j+2]
             c.weights[j+3, i] -= m * x[j+3]
@@ -73,7 +70,7 @@ function train_one(c :: LinearClassifier, x :: Array{Float64}, y :: Int64, α ::
     end
 end
 
-function train_one(c :: LinearClassifier, x :: Array{Float64}, y :: Int64, input_gradient :: Array{Float64}, α :: Float64 = 0.025)
+function train_one(c::LinearClassifier, x::Array{Float64}, y::Int64, input_gradient::Array{Float64}, α::Float64=0.025)
     predict!(c, x)
     c.outputs[y] -= 1
 
@@ -121,14 +118,14 @@ end
 function log_likelihood(c, X, y)
     n = size(X, 1)
     l = 0
-    for i in 1 : n
-        l += log(predict(c, X[i, :])[y[i]]);
+    for i in 1:n
+        l += log(predict(c, X[i, :])[y[i]])
     end
     return l
 end
 
 # calculate the accuracy on the testing dataset
-function accuracy(c :: LinearClassifier, X :: Array{Float64}, y :: Array{Int64})
+function accuracy(c::LinearClassifier, X::Array{Float64}, y::Array{Int64})
     n = size(X, 1)
     succ = 0
     for i in 1 : n
