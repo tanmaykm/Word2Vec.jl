@@ -3,6 +3,7 @@ module Word2Vec
 using Base.Collections      # for priority queue
 using Distances
 using NumericExtensions
+using Blocks
 
 export LinearClassifier, train_one, train_parallel, WordEmbedding, train, accuracy
 

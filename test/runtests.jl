@@ -1,5 +1,8 @@
 using Word2Vec
 using Base.Test
+using Blocks
+using Base.FS
+
 
 printover(i) = print("\r$i\e[K")
 function test_word_window()
@@ -56,6 +59,25 @@ end
 function test_word_embedding_large()
     embed = WordEmbedding(30, Word2Vec.random_inited, Word2Vec.huffman_tree, subsampling = 1e-4)
     @time train(embed, "text8")
+    embed
+end
+
+
+#=
+addprocs(8)
+
+include("runtests.jl")
+test_parallel_word_embedding()
+=#
+function test_parallel_word_embedding()
+    nparts = nworkers()
+    println("nworkers = $nparts")
+
+    f = File("text8")
+    b = Block(f, nparts)
+
+    embed = WordEmbedding(30, Word2Vec.random_inited, Word2Vec.huffman_tree, subsampling = 0)
+    @time train(embed, b)
     embed
 end
 

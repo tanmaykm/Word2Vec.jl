@@ -1,4 +1,4 @@
-function words_of(fp::IOStream; subsampling=(0, nothing), startpoint=-1, endpoint=-1)
+function words_of(fp::IO; subsampling=(0, nothing), startpoint=-1, endpoint=-1)
     (startpoint >= 0) && seek(fp, startpoint)
     (rate, distr) = subsampling
     function producer()
