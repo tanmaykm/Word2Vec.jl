@@ -62,25 +62,17 @@ function test_word_embedding_large()
     embed
 end
 
-
-#=
-addprocs(8)
-
-include("runtests.jl")
-test_parallel_word_embedding()
-=#
-function test_parallel_word_embedding()
-    nparts = nworkers()
-    println("nworkers = $nparts")
-
-    f = File("text8")
-    b = Block(f, nparts)
-
-    embed = WordEmbedding(30, Word2Vec.random_inited, Word2Vec.huffman_tree, subsampling = 0)
-    @time train(embed, b)
-    embed
-end
-
 test_word_window()
 test_softmax()
-test_word_embedding_tiny()
+
+embed = test_word_embedding_tiny()
+save(embed, "model")
+embed = restore("model")
+
+inp = ["king", "queen", "prince"]
+for w in inp
+    println("nearest words to $w")
+    println(find_nearest_words(embed, w))
+end
+println("nearest words to $inp")
+println(find_nearest_words(embed, ["king", "queen", "prince"]))

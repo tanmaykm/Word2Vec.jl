@@ -47,8 +47,35 @@ function WordEmbedding(dim::Int64, init_type::InitializatioinMethod, network_typ
     if dim <= 0 || lsize <= 0 || rsize <= 0
         throw(ArgumentError("dimension should be a positive integer"))
     end
-    return WordEmbedding(AbstractString[], Dict{AbstractString,Array{Float64}}(), nullnode, Dict{AbstractString,Array{Float64}}(), Dict{AbstractString,Vector{Int64}}(), init_type, network_type, dim, lsize, rsize, 0, subsampling);
+    return WordEmbedding(AbstractString[], 
+                         Dict{AbstractString,Array{Float64}}(),
+                         nullnode,
+                         Dict{AbstractString,Array{Float64}}(),
+                         Dict{AbstractString,Vector{Int64}}(),
+                         init_type,
+                         network_type,
+                         dim,
+                         lsize,
+                         rsize,
+                         0,
+                         subsampling)
 end
+
+# save the trained model to be restored later
+function save(embed::WordEmbedding, filename::AbstractString)
+    open(filename, "w") do fp
+        save(embed, fp)
+    end
+end
+save(embed::WordEmbedding, fp::IO) = serialize(fp, embed)
+
+# restore a trained model
+function restore(filename::AbstractString)
+    open(filename, "r") do fp
+        restore(fp)
+    end
+end
+restore(fp::IO) = deserialize(fp)
 
 # now we can start the training
 function work_process(embed::WordEmbedding, words_stream::Task)
@@ -148,7 +175,8 @@ end
 function reduce_embeds!(embed, embs)
     n = length(embs)
     for word in embed.vocabulary
-        embed.embedding[word] = sum(map(emb -> emb.embedding[word], embs)) / n
+        wordembs = [emb.embedding[word] for emb in embs]
+        embed.embedding[word] = .+(wordembs...) / n
     end
     embed.trained_count = sum(map(emb->emb.trained_count, embs))
     embed
@@ -169,7 +197,9 @@ function train(embed::WordEmbedding, corpus::Block)
 
     # Note: subsampling is not honored here, probably not required also?
     corpus = corpus |> words_of
+    println("Starting parallel training...")
     embs = pmap((x)->work_process(embed, x), corpus; fetch_results=true)
+    println("Merging results...")
     reduce_embeds!(embed, embs)
     embed
 end
@@ -187,19 +217,22 @@ function train(embed::WordEmbedding, corpus_filename::AbstractString)
     end
 
     number_workers = nworkers()
+    println("Starting parallel training...")
     words_streams = parallel_words_of(corpus_filename, number_workers, subsampling = (embed.subsampling, embed.distribution))
-    reduce_embeds!(embed, pmap(work_process, collect(repeated(embed, number_workers)), words_streams))
+    embs = pmap(work_process, collect(repeated(embed, number_workers)), words_streams)
+    println("Merging results...")
+    reduce_embeds!(embed, embs)
     embed
 end
 
-function initialize_embedding(embed :: WordEmbedding, randomly :: RandomInited)
+function initialize_embedding(embed::WordEmbedding, randomly::RandomInited)
     for i in embed.vocabulary
         embed.embedding[i] = rand(1, embed.dimension) * 2 - 1
     end
     embed
 end
 
-function initialize_network(embed :: WordEmbedding, huffman :: HuffmanTree)
+function initialize_network(embed::WordEmbedding, huffman::HuffmanTree)
     heap = PriorityQueue()
     for (word, freq) in embed.distribution
         node = BranchNode([], word, nothing)    # the data field of leaf node is its corresponding word.
@@ -217,47 +250,77 @@ function initialize_network(embed :: WordEmbedding, huffman :: HuffmanTree)
     embed
 end
 
-function initialize_network(embed :: WordEmbedding, ontology :: OntologyTree)
-    function build_classifiers(node :: TreeNode)
-        l = length(node.children)
-        if l == 0
-            return
-        end
-        node.data = LinearClassifier(l, embed.dimension)
-        for c in node.children
-            build_classifiers(c)
-        end
-    end
-    embed.classification_tree = ontology.ontology
-    embed
+#function initialize_network(embed::WordEmbedding, ontology::OntologyTree)
+#    function build_classifiers(node::TreeNode)
+#        l = length(node.children)
+#        if l == 0
+#            return
+#        end
+#        node.data = LinearClassifier(l, embed.dimension)
+#        for c in node.children
+#            build_classifiers(c)
+#        end
+#    end
+#    embed.classification_tree = ontology.ontology
+#    embed
+#end
+
+function Base.show(io::IO, x::WordEmbedding)
+    println(io, "Word embedding(dimension = $(x.dimension)) of $(length(x.vocabulary)) words, trained on $(x.trained_count) words")
+    #for (word, embed) in take(x.embedding, 5)
+    #    println(io, "$word => $embed")
+    #end
+    #if length(x.embedding) > 5
+    #    println(io, "......")
+    #end
 end
 
-function Base.show(io :: IO, x :: WordEmbedding)
-    @printf io "Word embedding(dimension = %d) of %d words, trained on %d words\n" x.dimension length(x.vocabulary) x.trained_count
-    for (word, embed) in take(x.embedding, 5)
-        @printf io "%s => %s\n" word string(embed)
+function joinvec(embed::WordEmbedding, words::Vector, fn::Function, wv::Array=[])
+    for word in words
+        if !haskey(embed.embedding, word)
+            warn("'$word' not present in the vocabulary")
+            return wv
+        end
+        if isempty(wv)
+            wv = vec(embed.embedding[word])
+        else
+            wv = fn(wv, vec(embed.embedding[word]))
+        end
     end
-    if length(x.embedding) > 5
-        @printf io "......"
-    end
+    wv
 end
 
-function find_nearest_words(embed :: WordEmbedding, word :: String; k = 1)
-    if !haskey(embed.embedding, word)
-        msg = @sprintf "'%s' doesn't present in the embedding\n" word
-        warn(msg)
-        return nothing
+function find_nearest_words(embed::WordEmbedding, words::AbstractString; k=5)
+    positive_words = []
+    negative_words = []
+    wordlist = positive_words
+    for tok in split(words)
+        tok = strip(tok)
+        isempty(tok) && continue
+        if tok == "+"
+            wordlist = positive_words
+        elseif tok == "-"
+            wordlist = negative_words
+        else
+            push!(wordlist, tok)
+        end
     end
+    find_nearest_words(embed, positive_words, negative_words; k=k)
+end
 
+#find_nearest_words(embed::WordEmbedding, word::AbstractString; k=5) = find_nearest_words(embed, [word], []; k=k)
+function find_nearest_words(embed::WordEmbedding, positive_words::Vector, negative_words::Vector; k=5)
     pq = PriorityQueue(Base.Order.Reverse)
 
-    for (w, embed_w) in embed.embedding
-        if w == word
-            continue
-        end
-        enqueue!(pq, w, cosine_dist(vec(embed.embedding[word]), vec(embed_w)))
-        if length(pq) > k
-            dequeue!(pq)
+    wv = joinvec(embed, positive_words, .+, Array[])
+    wv = joinvec(embed, negative_words, .-, wv)
+
+    if !isempty(wv)
+        for (w, embed_w) in embed.embedding
+            ((w in positive_words) || (w in negative_words)) && continue
+            dist = cosine_dist(wv, vec(embed_w))
+            enqueue!(pq, w, dist)
+            (length(pq) > k) && dequeue!(pq)
         end
     end
     collect(pq)
