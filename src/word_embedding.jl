@@ -209,6 +209,35 @@ function reduce_embeds!(embed, embs)
     embed
 end
 
+function _merge_embeds(ref1::RemoteRef, ref2::RemoteRef)
+    e1 = fetch(ref1)
+    e2 = fetch(ref2)
+    for word in e1.vocabulary
+        e1.embedding[word] .+= e2.embedding[word]
+    end
+    e1.trained_count += e2.trained_count
+    e1
+end
+
+function _merge_embeds(refs::Array{RemoteRef,1})
+    result = Array(RemoteRef, 0)
+    while length(refs) > 1
+        refpair = splice!(refs, 1:2)
+        push!(result, remotecall(refpair[1].where, _merge_embeds, refpair[1], refpair[2]))
+    end
+    isempty(refs) || push!(result, pop!(refs))
+    result
+end
+
+merge_embeds(refs) = merge_embeds(convert(Array{RemoteRef,1}, refs))
+function merge_embeds(refs::Array{RemoteRef,1})
+    result = refs
+    while length(result) > 1
+        result = _merge_embeds(result)
+    end
+    fetch(result[1])
+end
+
 function train(embed::WordEmbedding, corpus::Block)
     corpus = corpus |> as_io |> as_wordio
     embed.distribution = word_distribution(corpus)
@@ -225,9 +254,15 @@ function train(embed::WordEmbedding, corpus::Block)
     # Note: subsampling is not honored here, probably not required also?
     corpus = corpus |> words_of
     println("Starting parallel training...")
-    embs = pmap((x)->work_process(embed, x), corpus; fetch_results=true)
+    t1 = time()
+    save(embed, "/tmp/emb")
+    embs = pmap((x)->work_process("/tmp/emb", x), corpus; fetch_results=false)
+    t2 = time()
+    println("Partial training done at $(t2-t1) time")
     println("Merging results...")
-    reduce_embeds!(embed, embs)
+    embed = merge_embeds(embs)
+    t3 = time()
+    println("Training complete at $(t3-t1) time")
     embed
 end
 
