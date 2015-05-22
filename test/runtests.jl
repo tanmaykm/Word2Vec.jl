@@ -40,8 +40,15 @@ function test_softmax()
 
     @printf "Start training...\n"
     c = LinearClassifier(10, 784)
-    @time train_parallel(c, X_train, y_train, max_iter = 20)
-    @printf "Accuracy on test set %f (a value around 0.9 is expected)\n" accuracy(c, X_test, y_test)
+    #@time train_parallel(c, X_train, y_train, max_iter = 20)
+    niter = 20
+    for j in 1:niter
+        println("iteration $(j)/$(niter)")
+        for i in 1:size(X_train,1)
+            Word2Vec.train_one(c, X_train[i,:], y_train[i])
+        end
+        @printf "Accuracy on test set %f (a value around 0.9 is expected)\n" accuracy(c, X_test, y_test)
+    end
 end
 
 function test_word_embedding()
@@ -62,7 +69,7 @@ function test_word_embedding_large()
     embed
 end
 
-test_word_window()
+#test_word_window()
 test_softmax()
 
 embed = test_word_embedding_tiny()

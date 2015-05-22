@@ -137,7 +137,7 @@ function accuracy(c::LinearClassifier, X::Array{Float64}, y::Array{Int64})
     return succ / n
 end
 
-
+#=
 # train on the whole dataset by stochastic gradient descent.
 function train_parallel(c, X, y; threshold = 1e-4, max_iter = 100)
     function work(tup)
@@ -167,3 +167,4 @@ function train_parallel(c, X, y; threshold = 1e-4, max_iter = 100)
     new_l = log_likelihood(c, X, y)
     @printf "overall log-likelihood: %f\n" new_l
 end
+=#
