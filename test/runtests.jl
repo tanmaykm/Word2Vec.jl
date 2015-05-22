@@ -75,4 +75,4 @@ for w in inp
     println(find_nearest_words(embed, w))
 end
 println("nearest words to $inp")
-println(find_nearest_words(embed, ["king", "queen", "prince"]))
+println(find_nearest_words(embed, ["king", "queen", "prince"], []))

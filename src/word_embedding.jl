@@ -77,6 +77,11 @@ function restore(filename::AbstractString)
 end
 restore(fp::IO) = deserialize(fp)
 
+function work_process(ser_embed::AbstractString, words_stream::Task)
+    embed = restore(ser_embed)
+    work_process(embed, words_stream)
+end
+
 # now we can start the training
 function work_process(embed::WordEmbedding, words_stream::Task)
     middle = embed.lsize + 1
@@ -146,28 +151,50 @@ function word_distribution(corpus_filename::AbstractString)
     end
 end
 
-function word_distribution(b::Block)
-    count_refs = pmap(_word_distribution, b; fetch_results=false)
-    word_count = 0
-    distribution = Dict{AbstractString, Float64}()
-    for ref in count_refs
-        wc, dist = fetch(ref)
-        word_count += wc
-        for (n,v) in dist
-            if haskey(distribution, n)
-                distribution[n] += v
-            else
-                distribution[n] = v
-            end
+function _merge_distributions(ref1::RemoteRef, ref2::RemoteRef)
+    wc1,d1 = fetch(ref1)
+    wc2,d2 = fetch(ref2)
+    for (n,v) in d2
+        if haskey(d1, n)
+            d1[n] += v
+        else
+            d1[n] = v
         end
     end
+    (wc1+wc2), d1
+end
 
+function _merge_distributions(refs::Array{RemoteRef,1})
+    result = Array(RemoteRef, 0)
+    while length(refs) > 1
+        refpair = splice!(refs, 1:2)
+        push!(result, remotecall(refpair[1].where, _merge_distributions, refpair[1], refpair[2]))
+    end
+    isempty(refs) || push!(result, pop!(refs))
+    result
+end
+
+merge_distributions(refs) = merge_distributions(convert(Array{RemoteRef,1}, refs))
+function merge_distributions(refs::Array{RemoteRef,1})
+    result = refs
+    while length(result) > 1
+        result = _merge_distributions(result)
+    end
+    fetch(result[1])
+end
+
+# TODO: multi stage reduce on workers
+function word_distribution(b::Block)
+    t1 = time()
+    count_refs = pmap(_word_distribution, b; fetch_results=false)
+    word_count, distribution = merge_distributions(count_refs)
     for (k, v) in distribution
         distribution[k] /= word_count
     end
 
     println("Total Word Count: $word_count words")
     println("Total Vocabulary Size: $(length(keys(distribution)))")
+    println("Compute time: $(time()-t1)")
 
     distribution
 end
