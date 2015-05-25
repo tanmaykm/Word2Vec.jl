@@ -1,18 +1,22 @@
-const FILENAME = isempty(ARGS) ? "text8" : ARGS[1]
-const MODELFILE = "$(FILENAME).model"
-const NPROCS = (length(ARGS) > 1) ? parse(Int, ARGS[2]) : 4
+data_dir = joinpath(Pkg.dir("Word2Vec"), "test", "data")
+model_dir = joinpath(Pkg.dir("Word2Vec"), "test", "models")
 
-addprocs(NPROCS)
+test_filename = isempty(ARGS) ? "text8" : ARGS[1]
+test_file = joinpath(data_dir, test_filename)
+model_file = joinpath(model_dir, test_filename * ".model")
 
-using Word2Vec
-using Base.Test
-using Blocks
-using Base.FS
+np = (length(ARGS) > 1) ? parse(Int, ARGS[2]) : 4
+addprocs(np)
 
-function parallel_word_embedding(filename="text8", savemodel="")
+@everywhere using Word2Vec
+@everywhere using Base.Test
+@everywhere using Blocks
+@everywhere using Base.FS
+
+function parallel_word_embedding(filename, savemodel="")
     b = Block(File(filename), nworkers())
     embed = WordEmbedding(100, Word2Vec.random_inited, Word2Vec.huffman_tree, subsampling = 1e-4)
-    @time train(embed, b)
+    @time train(embed, b, "/tmp/emb")
     isempty(savemodel) || save(embed, savemodel)
     embed
 end
@@ -35,13 +39,18 @@ function interactive_nearest_words(embed)
         l = strip(readline(STDIN))
         nwords = find_nearest_words(embed, strip(l))
         println("\t$(l) - $(join(nwords,','))")
-        #inp = filter(x->!isempty(x), [strip(x) for x in split(l)])
-        #nwords = find_nearest_words(embed, inp)
-        #println("\t$(join(inp,',')) - $(join(nwords,','))")
     end
 end
 
-embed = isfile(MODELFILE) ? restore(MODELFILE) : parallel_word_embedding(FILENAME, MODELFILE)
+function restore_or_train()
+    if isfile(model_file)
+        restore(model_file)
+    else
+        parallel_word_embedding(test_file, model_file)
+    end
+end
+
+embed = restore_or_train()
 show(embed)
 test_nearest_words(embed)
 interactive_nearest_words(embed)

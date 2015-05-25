@@ -15,20 +15,6 @@ function words_of(file::Union(IO,AbstractString); subsampling=(0,false,nothing),
     WordStream(file, startpoint, endpoint, IOBuffer(), rate, filter, (rate==0 && !filter) ? Dict{AbstractString,Float64}() : distr)
 end
 
-function parallel_words_of(filename::AbstractString, num_workers::Integer; subsampling=(0,false,nothing))
-    flen = filesize(filename)
-
-    per_len = floor(Int, flen / num_workers)
-    cursor = 0
-    res = Array(Any, num_workers)
-    for i in 1:num_workers
-        last = (i == num_workers ? flen - 1 : cursor + per_len - 1)
-        res[i] = words_of(filename, subsampling=subsampling, startpoint=cursor, endpoint=last)
-        cursor += per_len
-    end
-    res
-end
-
 function Base.start(ws::WordStream)
     if isa(ws.fp, AbstractString)
         ws.fp = open(ws.fp)
@@ -38,9 +24,6 @@ function Base.start(ws::WordStream)
     else
         ws.startpoint = 0
         ws.endpoint = filesize(ws.fp)
-        #seekend(ws.fp)
-        #ws.endpoint = position(ws.fp)
-        #seekstart(ws.fp)
     end
     nothing
 end

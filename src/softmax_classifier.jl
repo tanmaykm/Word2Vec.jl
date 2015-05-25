@@ -1,11 +1,4 @@
-#= linear softmax classifier (with stochastic gradient descent)
-   LinearClassifier(k, n)
-   train(c, X, y)
-   train_one(c, x, y)
-   accuracy(c, X, y)
-   predict(c, x)
-=#
-
+# linear softmax classifier (with stochastic gradient descent)
 type LinearClassifier
     k::Int64 # number of outputs
     n::Int64 # number of inputs
@@ -127,35 +120,3 @@ function accuracy(c::LinearClassifier, X::Array{Float64}, y::Array{Int64})
     end
     return succ / n
 end
-
-#=
-# train on the whole dataset by stochastic gradient descent.
-function train_parallel(c, X, y; threshold = 1e-4, max_iter = 10)
-    function work(tup)
-        (c, X, y) = tup
-        n = size(X, 1)
-        for j in 1:max_iter
-            @printf "%d-th iteration(%d)\n" j n
-            for i in 1:n
-                train_one(c, X[i, :], y[i])
-            end
-        end
-        c.weights
-    end
-
-    n = size(X, 1)
-    l = log_likelihood(c, X, y)
-    @printf "overall log-likelihood: %f\n" l
-
-    number_workers = nworkers()
-    parts = partition(shuffle(collect(1:n)), number_workers)
-    c.weights = @parallel (.+) for ind in parts
-        work((c, X[ind, :], y[ind]))
-    end
-
-    c.weights /= number_workers
-
-    new_l = log_likelihood(c, X, y)
-    @printf "overall log-likelihood: %f\n" new_l
-end
-=#

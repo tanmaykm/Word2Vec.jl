@@ -1,11 +1,14 @@
 abstract TreeNode
+
 type BranchNode <: TreeNode
     children :: Array{BranchNode, 1}
     data
     extrainfo
 end
+
 type NullNode <: TreeNode
 end
+
 const nullnode = NullNode()
 
 function leaves_of(root::TreeNode)
