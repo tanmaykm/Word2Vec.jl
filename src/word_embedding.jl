@@ -6,10 +6,6 @@ abstract InitializatioinMethod <: Option
 type RandomInited <: InitializatioinMethod 
     # Initialize the embedding randomly
 end
-type OntologyInited <: InitializatioinMethod
-    # Initialize the embedding by the structure of ontology tree
-    ontology::TreeNode
-end
 const random_inited = RandomInited()
 
 abstract NetworkType <: Option
@@ -18,10 +14,6 @@ type NaiveSoftmax <: NetworkType
 end
 type HuffmanTree <: NetworkType
     # Predicate step by step on the huffman tree
-end
-type OntologyTree <: NetworkType
-    # Predicate step by step on the ontology tree
-    ontology::TreeNode
 end
 const naive_softmax = NaiveSoftmax()
 const huffman_tree = HuffmanTree()
@@ -39,26 +31,30 @@ type WordEmbedding
     dimension::Int64
     lsize::Int64    # left window size in training
     rsize::Int64    # right window size
+    trained_times::Dict{AbstractString,Int64}
     trained_count::Int64
+    corpus_size::Int64
     subsampling::Float64
+    init_learning_rate::Float64
+    iter::Int64
+    min_count::Int64
 end
 
-function WordEmbedding(dim::Int64, init_type::InitializatioinMethod, network_type::NetworkType; lsize=5, rsize=5, subsampling=-1)
+function WordEmbedding(dim::Int64, init_type::InitializatioinMethod, network_type::NetworkType; lsize=5, rsize=5, subsampling=1e-5, init_learning_rate=0.025, iter=5, min_count=5)
     if dim <= 0 || lsize <= 0 || rsize <= 0
         throw(ArgumentError("dimension should be a positive integer"))
     end
-    return WordEmbedding(AbstractString[], 
-                         Dict{AbstractString,Array{Float64}}(),
-                         nullnode,
-                         Dict{AbstractString,Array{Float64}}(),
-                         Dict{AbstractString,Vector{Int64}}(),
-                         init_type,
-                         network_type,
-                         dim,
-                         lsize,
-                         rsize,
-                         0,
-                         subsampling)
+    WordEmbedding(AbstractString[], 
+                    Dict{AbstractString,Array{Float64}}(),
+                    nullnode,
+                    Dict{AbstractString,Array{Float64}}(),
+                    Dict{AbstractString,Vector{Int64}}(),
+                    init_type, network_type,
+                    dim,
+                    lsize, rsize,
+                    Dict{AbstractString,Int64}(),
+                    0, 0,
+                    subsampling, init_learning_rate, iter, min_count)
 end
 
 # strip embedding and retain only word vectors
@@ -80,29 +76,13 @@ function _print_codebook(embed::WordEmbedding, N=10)
     nothing
 end
 
-# save the trained model to be restored later
-function save(embed::WordEmbedding, filename::AbstractString)
-    open(filename, "w") do fp
-        save(embed, fp)
-    end
-end
-save(embed::WordEmbedding, fp::IO) = serialize(fp, embed)
-
-# restore a trained model
-function restore(filename::AbstractString)
-    open(filename, "r") do fp
-        restore(fp)
-    end
-end
-restore(fp::IO) = deserialize(fp)
-
-function work_process(ser_embed::AbstractString, words_stream::Task)
+function work_process(ser_embed::AbstractString, words_stream::WordStream)
     embed = restore(ser_embed)
     work_process(embed, words_stream)
 end
 
 # now we can start the training
-function work_process(embed::WordEmbedding, words_stream::Task)
+function work_process(embed::WordEmbedding, words_stream::WordStream)
     t1 = time()
     if isfile("/tmp/emb-$(myid())")
         embed = restore("/tmp/emb-$(myid())")
@@ -112,36 +92,57 @@ function work_process(embed::WordEmbedding, words_stream::Task)
     end
     middle = embed.lsize + 1
     input_gradient = zeros(Float64, embed.dimension)
-    for window in sliding_window(words_stream, lsize = embed.lsize, rsize = embed.rsize)
-        trained_word = window[middle]
-        #if embed.trained_count % 1000 == 0
-        #    println("trained on $(embed.trained_count) words")
-        #end
-        local_lsize = Int(rand(Uint64) % embed.lsize)
-        local_rsize = Int(rand(Uint64) % embed.rsize)
-        # @printf "lsize: %d, rsize %d\n" local_lsize local_rsize
-        trained = false
-        for ind in (middle - local_lsize) : (middle + local_rsize)
-            if ind == middle
-                continue
+    α = embed.init_learning_rate
+    trained_count = 0
+    trained_times = Dict{String, Int64}()
+
+    for current_iter in 1:embed.iter
+        for window in sliding_window(words_stream, lsize = embed.lsize, rsize = embed.rsize)
+            trained_word = window[middle]
+            trained_times[trained_word] = get(trained_times, trained_word, 0) + 1
+            trained_count += 1
+
+            if trained_count % 10000 == 0
+                flen = words_stream.endpoint - words_stream.startpoint
+                iter_progress = (position(words_stream.fp) - words_stream.startpoint) / flen
+                progress = ((current_iter - 1) + iter_progress) / embed.iter
+                println("trained on $trained_count words, progress $progress, α = $α")
+                α = embed.init_learning_rate * (1 - progress)
+                if α < embed.init_learning_rate * 0.0001
+                    α = embed.init_learning_rate * 0.0001
+                end
             end
-            target_word = window[ind]
-            if !haskey(embed.codebook, target_word)
-                # discard words not presenting in the classification tree
-                continue
+
+            local_lsize = Int(rand(Uint64) % embed.lsize)
+            local_rsize = Int(rand(Uint64) % embed.rsize)
+
+            for ind in (middle - local_lsize) : (middle + local_rsize)
+                if ind == middle
+                    continue
+                end
+                target_word = window[ind]
+                if !haskey(embed.codebook, target_word) || !haskey(embed.codebook, trained_word)
+                    # discard words not presenting in the classification tree
+                    continue
+                end
+                # @printf "%s -> %s\n" trained_word target_word
+                node = embed.classification_tree::TreeNode
+                fill!(input_gradient, 0.0)
+                input = embed.embedding[trained_word]
+
+                for code in embed.codebook[target_word]
+                    train_one(node.data, input, code, input_gradient, α)
+                    node = node.children[code]
+                end
+
+                for i in 1:embed.dimension
+                    input[i] -= input_gradient[i]
+                end
             end
-            # @printf "%s -> %s\n" trained_word target_word
-            node = embed.classification_tree::TreeNode
-            fill!(input_gradient, 0.0)
-            for code in embed.codebook[target_word]
-                train_one(node.data, embed.embedding[trained_word], code, input_gradient)
-                node = node.children[code]
-            end
-            BLAS.axpy!(embed.dimension, -1.0, vec(input_gradient), 1, vec(embed.embedding[trained_word]), 1)
-            trained = true
         end
-        trained && (embed.trained_count += 1)
     end
+    embed.trained_count = trained_count
+    embed.trained_times = trained_times
     t2 = time()
     println("Finished training. Trained on $(embed.trained_count) words in $(t2-t1) seconds. Sending result to the main process")
     _strip(embed)
@@ -172,9 +173,22 @@ function _word_distribution(corpus_fileio::IO)
     word_count, distribution
 end
 
-function word_distribution(corpus_filename::AbstractString)
+function _strip_infrequent(distribution::Dict{AbstractString, Float64}, min_count::Int=5)
+    dist2 = Dict{AbstractString, Float64}()
+    word_count = 0
+    for (k,v) in distribution
+        if v >= min_count
+            word_count += v
+            dist2[k] = v
+        end
+    end
+    (word_count, dist2)
+end
+
+function word_distribution(corpus_filename::AbstractString, min_count::Int=5)
     open(corpus_filename, "r") do fs
         word_count, distribution = _word_distribution(fs)
+        word_count, distribution = _strip_infrequent(distribution, min_count)
 
         for (k, v) in distribution
             distribution[k] /= word_count
@@ -216,10 +230,16 @@ function merge_distributions(refs::Array{RemoteRef,1})
     fetch(result[1])
 end
 
-function word_distribution(b::Block)
+function word_distribution(b::Block, min_count::Int=5)
     t1 = time()
     count_refs = pmap(_word_distribution, b; fetch_results=false)
     word_count, distribution = merge_distributions(count_refs)
+    println("Total Word Count: $word_count words")
+    println("Total Vocabulary Size: $(length(keys(distribution)))")
+
+    println("Stripping infrequent words...")
+    word_count, distribution = _strip_infrequent(distribution, min_count)
+
     for (k, v) in distribution
         distribution[k] /= word_count
     end
@@ -302,7 +322,9 @@ function train(embed::WordEmbedding, corpus::Block)
     t2 = time()
     println("Partial training done at $(t2-t1) time")
     println("Merging results...")
-    embed = merge_embeds(embs)
+    training_result = merge_embeds(embs)
+    embed.embedding = training_result.embedding
+    embed.trained_count = training_result.trained_count
     t3 = time()
     println("Training complete at $(t3-t1) time")
     embed
@@ -322,7 +344,7 @@ function train(embed::WordEmbedding, corpus_filename::AbstractString)
 
     number_workers = nworkers()
     println("Starting parallel training...")
-    words_streams = parallel_words_of(corpus_filename, number_workers, subsampling = (embed.subsampling, embed.distribution))
+    words_streams = parallel_words_of(corpus_filename, number_workers, subsampling = (embed.subsampling, true, embed.distribution))
     embs = pmap(work_process, collect(repeated(embed, number_workers)), words_streams)
     println("Merging results...")
     reduce_embeds!(embed, embs)
@@ -353,21 +375,6 @@ function initialize_network(embed::WordEmbedding, huffman::HuffmanTree)
     embed.classification_tree = dequeue!(heap)
     embed
 end
-
-#function initialize_network(embed::WordEmbedding, ontology::OntologyTree)
-#    function build_classifiers(node::TreeNode)
-#        l = length(node.children)
-#        if l == 0
-#            return
-#        end
-#        node.data = LinearClassifier(l, embed.dimension)
-#        for c in node.children
-#            build_classifiers(c)
-#        end
-#    end
-#    embed.classification_tree = ontology.ontology
-#    embed
-#end
 
 function Base.show(io::IO, x::WordEmbedding)
     println(io, "Word embedding(dimension = $(x.dimension)) of $(length(x.vocabulary)) words, trained on $(x.trained_count) words")
@@ -427,5 +434,5 @@ function find_nearest_words(embed::WordEmbedding, positive_words::Vector, negati
             (length(pq) > k) && dequeue!(pq)
         end
     end
-    collect(pq)
+    sort(collect(pq), by = t -> t[2])
 end

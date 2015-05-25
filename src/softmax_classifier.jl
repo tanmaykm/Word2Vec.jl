@@ -57,10 +57,7 @@ function train_one(c::LinearClassifier, x::Array{Float64}, y::Int64, α::Float64
         m = α * c.outputs[i]
         j = 1
         while j <= limit
-            c.weights[j,   i] -= m * x[j]
-            c.weights[j+1, i] -= m * x[j+1]
-            c.weights[j+2, i] -= m * x[j+2]
-            c.weights[j+3, i] -= m * x[j+3]
+            @nexprs 4 (idx->c.weights[j + idx - 1, i] -= m * x[j + idx - 1])
             j+=4
         end
         while j <= c.n
@@ -83,10 +80,7 @@ function train_one(c::LinearClassifier, x::Array{Float64}, y::Int64, input_gradi
         m = α * c.outputs[i]
         j = 1
         while j <= limit
-            input_gradient[j] += m * c.weights[j, i]
-            input_gradient[j+1] += m * c.weights[j+1, i]
-            input_gradient[j+2] += m * c.weights[j+2, i]
-            input_gradient[j+3] += m * c.weights[j+3, i]
+            @nexprs 4 (idx->input_gradient[j+idx-1] += m * c.weights[j+idx-1, i])
             j+=4
         end
         while j <= c.n
@@ -101,10 +95,7 @@ function train_one(c::LinearClassifier, x::Array{Float64}, y::Int64, input_gradi
         m = α * c.outputs[i]
         j = 1
         while j <= limit
-            c.weights[j, i] -= m * x[j]
-            c.weights[j+1, i] -= m * x[j+1]
-            c.weights[j+2, i] -= m * x[j+2]
-            c.weights[j+3, i] -= m * x[j+3]
+            @nexprs 4 (idx->c.weights[j + idx - 1, i] -= m * x[j + idx - 1])
             j+=4
         end
         while j <= c.n
@@ -139,7 +130,7 @@ end
 
 #=
 # train on the whole dataset by stochastic gradient descent.
-function train_parallel(c, X, y; threshold = 1e-4, max_iter = 100)
+function train_parallel(c, X, y; threshold = 1e-4, max_iter = 10)
     function work(tup)
         (c, X, y) = tup
         n = size(X, 1)

@@ -11,7 +11,7 @@ using Base.FS
 
 function parallel_word_embedding(filename="text8", savemodel="")
     b = Block(File(filename), nworkers())
-    embed = WordEmbedding(100, Word2Vec.random_inited, Word2Vec.huffman_tree, subsampling = 0)
+    embed = WordEmbedding(100, Word2Vec.random_inited, Word2Vec.huffman_tree, subsampling = 1e-4)
     @time train(embed, b)
     isempty(savemodel) || save(embed, savemodel)
     embed
