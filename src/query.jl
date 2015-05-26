@@ -14,8 +14,8 @@ function joinvec(embed::WordEmbedding, words::Vector, fn::Function, wv::Array=[]
 end
 
 function find_nearest_words(embed::WordEmbedding, words::AbstractString; k=5)
-    positive_words = []
-    negative_words = []
+    positive_words = AbstractString[]
+    negative_words = AbstractString[]
     wordlist = positive_words
     for tok in split(words)
         tok = strip(tok)

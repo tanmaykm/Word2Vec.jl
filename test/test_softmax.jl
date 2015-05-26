@@ -1,5 +1,6 @@
 using Word2Vec
 using Base.Test
+using Compat
 
 data_dir = joinpath(Pkg.dir("Word2Vec"), "test", "data")
 train_file = joinpath(data_dir, "mnist_train.csv")
@@ -11,11 +12,19 @@ function test_softmax()
     println("Loading...")
     D = readcsv(train_file, header=true)[1]
     X_train = D[:, 2:end] / 255
-    y_train = map(Int64, D[:,1] + 1)
+    if isless(Base.VERSION, v"0.4.0-")
+        y_train = map(int64, D[:,1] + 1)
+    else
+        y_train = map(Int64, D[:,1] + 1)
+    end
 
     D = readcsv(test_file, header=true)[1]
     X_test = D[:, 2:end] / 255
-    y_test= map(Int64, D[:, 1] + 1)
+    if isless(Base.VERSION, v"0.4.0-")
+        y_test = map(int64, D[:, 1] + 1)
+    else
+        y_test = map(Int64, D[:, 1] + 1)
+    end
 
     println("Start training...")
     c = LinearClassifier(10, 784)

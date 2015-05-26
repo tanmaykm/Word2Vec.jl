@@ -1,3 +1,5 @@
+using Compat
+
 data_dir = joinpath(Pkg.dir("Word2Vec"), "test", "data")
 model_dir = joinpath(Pkg.dir("Word2Vec"), "test", "models")
 
@@ -5,13 +7,14 @@ test_filename = isempty(ARGS) ? "text8" : ARGS[1]
 test_file = joinpath(data_dir, test_filename)
 model_file = joinpath(model_dir, test_filename * ".model")
 
-np = (length(ARGS) > 1) ? parse(Int, ARGS[2]) : 4
+np = (length(ARGS) > 1) ? @compat(parse(Int, ARGS[2])) : 4
 addprocs(np)
 
 @everywhere using Word2Vec
 @everywhere using Base.Test
 @everywhere using Blocks
 @everywhere using Base.FS
+@everywhere using Compat
 
 function parallel_word_embedding(filename, savemodel="")
     b = Block(File(filename), nworkers())

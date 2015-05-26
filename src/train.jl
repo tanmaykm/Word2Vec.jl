@@ -147,7 +147,7 @@ function strip_infrequent(distribution::Dict{AbstractString,Float64}, min_count:
 
     for (k,v) in distribution
         if v >= min_count
-            word_count += Int(v)
+            word_count += @compat(Int(v))
             stripped_distr[k] = v
         end
     end
@@ -247,8 +247,8 @@ function work_process(embed::WordEmbedding, words_stream::WordStream, strip::Boo
                 end
             end
 
-            local_lsize = Int(rand(Uint64) % embed.lsize)
-            local_rsize = Int(rand(Uint64) % embed.rsize)
+            local_lsize = @compat(Int(rand(Uint64) % embed.lsize))
+            local_rsize = @compat(Int(rand(Uint64) % embed.rsize))
 
             for ind in (middle - local_lsize) : (middle + local_rsize)
                 (ind == middle) && continue
